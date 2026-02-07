@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FLL UNEARTHED Timer</title>
+  <style>
+    body {
+      margin: 0;
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      background: #1a120b;
+      color: #fff;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      overflow: hidden;
+    }
+
+    .header {
+      position: absolute;
+      top: 20px;
+      text-align: center;
+    }
+
+    .header h1 { font-size: 1.8rem; margin: 0; color: #d4af37; }
+    .header h2 { font-size: 1.2rem; margin: 5px 0; opacity: 0.8; }
+
+    .container { text-align: center; z-index: 2; }
+
+    .circle {
+      position: relative;
+      width: 320px;
+      height: 320px;
+      margin: 0 auto;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+      transform: rotate(-90deg);
+    }
+
+    .bg { fill: none; stroke: #333; stroke-width: 18; }
+    .progress { 
+      fill: none; 
+      stroke: #d4af37; 
+      stroke-width: 18; 
+      stroke-linecap: round; 
+      transition: stroke-dashoffset 0.3s linear; 
+    }
+
+    .time {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 4.5rem;
+      font-weight: bold;
+    }
+
+    .time.zero { color: #ff4444; }
+
+    .inputs { margin: 20px 0; }
+    .inputs input {
+      width: 70px; padding: 10px; font-size: 1.3rem; text-align: center;
+      background: #2b1b12; border: 2px solid #444; color: #fff;
+      border-radius: 8px; margin: 0 5px;
+    }
+
+    .controls { margin-bottom: 25px; }
+    .control-btn {
+      padding: 14px 35px; font-size: 1.3rem; margin: 0 10px;
+      background: #d4af37; color: #000; border: none; border-radius: 10px;
+      cursor: pointer; font-weight: bold; transition: transform 0.1s;
+    }
+    .control-btn:active { transform: scale(0.95); }
+    .control-btn:disabled { background: #444; cursor: not-allowed; }
+
+    .laps-section { width: 100%; max-width: 450px; }
+    .laps-list {
+      list-style: none; padding: 0; max-height: 180px;
+      overflow-y: auto; border: 1px solid #444; border-radius: 8px;
+      background: #2b1b12;
+    }
+    .laps-list li {
+      display: grid; grid-template-columns: 0.5fr 1fr 1fr 1fr;
+      padding: 12px; border-bottom: 1px solid #333; font-size: 1rem;
+    }
+
+    #countdown-overlay, #end-screen {
+      position: fixed; inset: 0; display: none; 
+      justify-content: center; align-items: center; z-index: 100;
+    }
+    #countdown-overlay { background: rgba(0,0,0,0.9); font-size: 18vw; color: #d4af37; font-weight: bold; }
+    #end-screen { background: rgba(139, 0, 0, 0.7); pointer-events: none; flex-direction: column; }
+    #end-screen h1 { font-size: 6rem; margin: 0; color: white; text-shadow: 0 0 30px #000; }
+
+    .show { display: flex !important; }
+  </style>
+</head>
+<body>
+
+  <div id="countdown-overlay">3</div>
+
+  <div id="end-screen">
+    <h1>MATCH   END</h1>
+  </div>
+
+  <div class="header">
+    <h1>FIRST LEGO League</h1>
+    <h2>UNEARTHED 2025-2026 Timer</h2>
+  </div>
+
+  <div class="container">
+    <div class="circle">
+      <svg>
+        <circle cx="160" cy="160" r="140" class="bg"/>
+        <circle cx="160" cy="160" r="140" class="progress" id="progress-bar"/>
+      </svg>
+      <div class="time" id="time">02:30</div>
+    </div>
+
+    <div class="inputs">
+      <input type="number" id="minutes" value="2" min="0">
+      <input type="number" id="seconds" value="30" min="0" max="59">
+    </div>
+
+    <div class="controls">
+      <button id="main-btn" class="control-btn">Start</button>
+      <button id="secondary-btn" class="control-btn" disabled>Reset</button>
+    </div>
+
+    <div class="laps-section">
+      <ul id="laps" class="laps-list"></ul>
+    </div>
+  </div>
+
+  <script>
+    const timeDisplay = document.getElementById('time');
+    const progressCircle = document.getElementById('progress-bar');
+    const mainBtn = document.getElementById('main-btn');
+    const secondaryBtn = document.getElementById('secondary-btn');
+    const lapsList = document.getElementById('laps');
+    const minInput = document.getElementById('minutes');
+    const secInput = document.getElementById('seconds');
+    const countdownOverlay = document.getElementById('countdown-overlay');
+    const endScreen = document.getElementById('end-screen');
+
+    const radius = 140;
+    const circumference = 2 * Math.PI * radius;
+    progressCircle.style.strokeDasharray = circumference;
+
+    let totalSeconds = 150;
+    let remainingSeconds = 150;
+    let timer = null;
+    let laps = [];
+    let isRunning = false;
+    let isPaused = false;
+
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+    // REVERTED: Original Sound Logic
+    function playHorn(isEnd = false) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+
+      osc.type = isEnd ? 'square' : 'sawtooth';
+      osc.frequency.value = isEnd ? 1250 : 390;
+
+      gain.gain.setValueAtTime(0.9, audioCtx.currentTime); 
+      gain.gain.setValueAtTime(0.0, audioCtx.currentTime + (isEnd ? 1.5 : 1.0));
+
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+
+      osc.start();
+      osc.stop(audioCtx.currentTime + (isEnd ? 1.6 : 1.1));
+    }
+
+    function updateDisplay() {
+      const m = Math.floor(remainingSeconds / 60);
+      const s = remainingSeconds % 60;
+      timeDisplay.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+      
+      const offset = circumference - (remainingSeconds / totalSeconds) * circumference;
+      progressCircle.style.strokeDashoffset = offset;
+      
+      if (remainingSeconds === 0) timeDisplay.classList.add('zero');
+      else timeDisplay.classList.remove('zero');
+    }
+
+    function startTimerLogic() {
+      isRunning = true;
+      isPaused = false;
+      updateButtons();
+      
+      timer = setInterval(() => {
+        if (remainingSeconds > 0) {
+          remainingSeconds--;
+          updateDisplay();
+        }
+
+        if (remainingSeconds <= 0) {
+          clearInterval(timer);
+          isRunning = false;
+          playHorn(true); 
+          endScreen.classList.add('show'); 
+          updateButtons();
+        }
+      }, 1000);
+    }
+
+    function handleMainBtn() {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+
+      if (!isRunning && !isPaused) {
+        totalSeconds = (parseInt(minInput.value) * 60) + (parseInt(secInput.value) || 0);
+        remainingSeconds = totalSeconds;
+        
+        countdownOverlay.classList.add('show');
+        let count = 3;
+        countdownOverlay.textContent = count;
+        
+        const countInterval = setInterval(() => {
+          count--;
+          if (count > 0) {
+            countdownOverlay.textContent = count;
+          } else if (count === 0) {
+            countdownOverlay.textContent = "GO!";
+            playHorn(false);
+          } else {
+            clearInterval(countInterval);
+            countdownOverlay.classList.remove('show');
+            startTimerLogic();
+          }
+        }, 1000);
+      } else if (isRunning) {
+        clearInterval(timer);
+        isRunning = false;
+        isPaused = true;
+        updateButtons();
+      } else if (isPaused) {
+        startTimerLogic();
+      }
+    }
+
+    function updateButtons() {
+      if (isRunning) {
+        mainBtn.textContent = "Stop";
+        secondaryBtn.textContent = "Lap";
+        secondaryBtn.disabled = false;
+        minInput.disabled = secInput.disabled = true;
+      } else if (isPaused) {
+        mainBtn.textContent = "Resume";
+        secondaryBtn.textContent = "Reset";
+        secondaryBtn.disabled = false;
+      } else {
+        mainBtn.textContent = "Start";
+        secondaryBtn.textContent = "Reset";
+        secondaryBtn.disabled = (remainingSeconds === totalSeconds && laps.length === 0);
+        minInput.disabled = secInput.disabled = false;
+      }
+    }
+
+    function recordLap() {
+      const elapsed = totalSeconds - remainingSeconds;
+      const prevElapsed = laps.length > 0 ? laps[0].total : 0;
+      const lapDuration = elapsed - prevElapsed;
+      
+      laps.unshift({ num: laps.length + 1, duration: lapDuration, total: elapsed });
+      
+      const li = document.createElement('li');
+      li.innerHTML = `<span>#${laps[0].num}</span><span>Lap: ${lapDuration}s</span><span>Total: ${elapsed}s</span><span>Rem: ${remainingSeconds}s</span>`;
+      lapsList.prepend(li);
+    }
+
+    function resetTimer() {
+      clearInterval(timer);
+      isRunning = false;
+      isPaused = false;
+      laps = [];
+      lapsList.innerHTML = '';
+      endScreen.classList.remove('show');
+      totalSeconds = (parseInt(minInput.value) * 60) + (parseInt(secInput.value) || 0);
+      remainingSeconds = totalSeconds;
+      updateDisplay();
+      updateButtons();
+    }
+
+    mainBtn.addEventListener('click', handleMainBtn);
+    secondaryBtn.addEventListener('click', () => isRunning ? recordLap() : resetTimer());
+    
+    [minInput, secInput].forEach(input => input.addEventListener('input', () => {
+      if(!isRunning && !isPaused) {
+        totalSeconds = (parseInt(minInput.value) * 60) + (parseInt(secInput.value) || 0);
+        remainingSeconds = totalSeconds;
+        updateDisplay();
+      }
+    }));
+
+    updateDisplay();
+  </script>
+</body>
+</html>
